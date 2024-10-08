@@ -3,9 +3,7 @@ pragma solidity 0.6.12;
 
 import {ILendingPool} from '../../../interfaces/ILendingPool.sol';
 import {ICreditDelegationToken} from '../../../interfaces/ICreditDelegationToken.sol';
-import {
-  VersionedInitializable
-} from '../../libraries/aave-upgradeability/VersionedInitializable.sol';
+import {VersionedInitializable} from '../../libraries/aave-upgradeability/VersionedInitializable.sol';
 import {IncentivizedERC20} from '../IncentivizedERC20.sol';
 import {Errors} from '../../libraries/helpers/Errors.sol';
 
@@ -25,7 +23,7 @@ abstract contract DebtTokenBase is
   /**
    * @dev Only lending pool can call functions marked by this modifier
    **/
-  modifier onlyLendingPool {
+  modifier onlyLendingPool() {
     require(_msgSender() == address(_getLendingPool()), Errors.CT_CALLER_MUST_BE_LENDING_POOL);
     _;
   }
@@ -37,6 +35,7 @@ abstract contract DebtTokenBase is
    * respect the liquidation constraints (even if delegated, a delegatee cannot
    * force a delegator HF to go below 1)
    **/
+  // msg.sender 授权给目标地址 delegatee 债务额度，承诺可代 delegatee 偿还一定数量的债务。
   function approveDelegation(address delegatee, uint256 amount) external override {
     _borrowAllowances[_msgSender()][delegatee] = amount;
     emit BorrowAllowanceDelegated(_msgSender(), delegatee, _getUnderlyingAssetAddress(), amount);
@@ -48,12 +47,11 @@ abstract contract DebtTokenBase is
    * @param toUser The user to give allowance to
    * @return the current allowance of toUser
    **/
-  function borrowAllowance(address fromUser, address toUser)
-    external
-    view
-    override
-    returns (uint256)
-  {
+  //  返回fromUser授权给toUser的可代还债务额度
+  function borrowAllowance(
+    address fromUser,
+    address toUser
+  ) external view override returns (uint256) {
     return _borrowAllowances[fromUser][toUser];
   }
 
@@ -67,13 +65,10 @@ abstract contract DebtTokenBase is
     revert('TRANSFER_NOT_SUPPORTED');
   }
 
-  function allowance(address owner, address spender)
-    public
-    view
-    virtual
-    override
-    returns (uint256)
-  {
+  function allowance(
+    address owner,
+    address spender
+  ) public view virtual override returns (uint256) {
     owner;
     spender;
     revert('ALLOWANCE_NOT_SUPPORTED');
@@ -96,35 +91,30 @@ abstract contract DebtTokenBase is
     revert('TRANSFER_NOT_SUPPORTED');
   }
 
-  function increaseAllowance(address spender, uint256 addedValue)
-    public
-    virtual
-    override
-    returns (bool)
-  {
+  function increaseAllowance(
+    address spender,
+    uint256 addedValue
+  ) public virtual override returns (bool) {
     spender;
     addedValue;
     revert('ALLOWANCE_NOT_SUPPORTED');
   }
 
-  function decreaseAllowance(address spender, uint256 subtractedValue)
-    public
-    virtual
-    override
-    returns (bool)
-  {
+  function decreaseAllowance(
+    address spender,
+    uint256 subtractedValue
+  ) public virtual override returns (bool) {
     spender;
     subtractedValue;
     revert('ALLOWANCE_NOT_SUPPORTED');
   }
 
-  function _decreaseBorrowAllowance(
-    address delegator,
-    address delegatee,
-    uint256 amount
-  ) internal {
-    uint256 newAllowance =
-      _borrowAllowances[delegator][delegatee].sub(amount, Errors.BORROW_ALLOWANCE_NOT_ENOUGH);
+  // 减少授权可代还额度，在debt token mint时调用
+  function _decreaseBorrowAllowance(address delegator, address delegatee, uint256 amount) internal {
+    uint256 newAllowance = _borrowAllowances[delegator][delegatee].sub(
+      amount,
+      Errors.BORROW_ALLOWANCE_NOT_ENOUGH
+    );
 
     _borrowAllowances[delegator][delegatee] = newAllowance;
 

@@ -197,6 +197,7 @@ library ReserveLogic {
    * @param liquidityAdded The amount of liquidity added to the protocol (deposit or repay) in the previous action
    * @param liquidityTaken The amount of liquidity taken from the protocol (redeem or borrow)
    **/
+  //  更新固定借款利率、动态借款利率、流动性率
   function updateInterestRates(
     DataTypes.ReserveData storage reserve,
     address reserveAddress,
@@ -299,7 +300,7 @@ library ReserveLogic {
       // 固定利率借款token合约的当前实际数量
       // 使用的是借款token上一次更新到当前时间的 固定利率借款指数
       // 下面的cumulatedStableInterest计算的是借款token上一次更新到资产上次更新时间的 固定利率借款指数
-      // 两者计算得出的实际借款数量相减，便可以得出资产上次更新到现在的借款累计
+      // 两者计算得出的实际借款数量相减，便可以得出资产上次更新到现在的借款利息累计
       vars.currentStableDebt,
       vars.avgStableRate,
       vars.stableSupplyUpdatedTimestamp
@@ -311,10 +312,11 @@ library ReserveLogic {
 
     //calculate the new total supply after accumulation of the index
     // 计算当前动态借款的实际数量
+    // currentVariableDebt - 计算上一次动态借款的实际数量 表示 资产上次更新到现在的利息增长
     vars.currentVariableDebt = scaledVariableDebt.rayMul(newVariableBorrowIndex);
 
     //calculate the stable debt until the last timestamp update
-    // 复利计算固定利率借款的利息涨幅（其实就是固定利率借款指数，这里取名字叫Interset，不太清楚），考虑了timestamp-vars.stableSupplyUpdatedTimestamp这段时间
+    // 复利计算固定利率借款的利息涨幅（其实就是固定利率借款指数，这里取名字叫Interset，不太清晰），考虑了timestamp-vars.stableSupplyUpdatedTimestamp这段时间
     // 存疑：这里的两个时间，如何确保资产的上一次更新时间 大于 借款token的上一次更新时间？
     vars.cumulatedStableInterest = MathUtils.calculateCompoundedInterest(
       vars.avgStableRate,
@@ -324,23 +326,24 @@ library ReserveLogic {
       timestamp
     );
 
-    // 固定利率借款的实际数量（乘以固定利率借款指数，放大数量）
+    // 固定利率借款截止到资产上次更新的实际数量（乘以固定利率借款指数，放大数量）
     vars.previousStableDebt = vars.principalStableDebt.rayMul(vars.cumulatedStableInterest);
 
     //debt accrued is the sum of the current debt minus the sum of the debt at the last update
-    // 当前动态借款借款数量 + 当前固定利率借款数量 - 上次动态借款借款数量 - 上次固定利率借款数量 = 这段时间内累计的偿还利息
+    // 当前动态借款借款数量 + 当前固定利率借款数量 - 截止到上次资产更新的动态借款借款数量 - 截止到上次资产更新的上次固定利率借款数量 = 资产上次更新到当前这段时间内 累计的偿还利息
+    // 这段时间内借贷本金没变，增长的都是利息
     vars.totalDebtAccrued = vars
       .currentVariableDebt
       .add(vars.currentStableDebt)
       .sub(vars.previousVariableDebt)
       .sub(vars.previousStableDebt);
 
-    // 借款数量乘以储备系数 = 国库应该收取的token数量
+    // 增长利息乘以储备系数 = 国库应该收取的利息数量
     vars.amountToMint = vars.totalDebtAccrued.percentMul(vars.reserveFactor);
 
     if (vars.amountToMint != 0) {
       // 铸造aToken
-      // 存疑：借款利息还没还回来
+      // 这里其实借款利息还没有实际还回来，铸造aToken给国库，相当于国库提前开始吃利息，所以最终国库拿走的借款利息是比reserveFactor要高的
       IAToken(reserve.aTokenAddress).mintToTreasury(vars.amountToMint, newLiquidityIndex);
     }
   }
