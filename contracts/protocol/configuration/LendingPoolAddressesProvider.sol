@@ -16,8 +16,11 @@ import {ILendingPoolAddressesProvider} from '../../interfaces/ILendingPoolAddres
  * - Owned by the Aave Governance
  * @author Aave
  **/
+// 存储地址的合约，外部合约可以调用该合约获取aave最新模块的合约地址
+// 也可以设置各个代理合约的实现地址
 contract LendingPoolAddressesProvider is Ownable, ILendingPoolAddressesProvider {
   string private _marketId;
+  // 合约都在_addresses中存储
   mapping(bytes32 => address) private _addresses;
 
   bytes32 private constant LENDING_POOL = 'LENDING_POOL';
@@ -57,11 +60,10 @@ contract LendingPoolAddressesProvider is Ownable, ILendingPoolAddressesProvider 
    * @param id The id
    * @param implementationAddress The address of the new implementation
    */
-  function setAddressAsProxy(bytes32 id, address implementationAddress)
-    external
-    override
-    onlyOwner
-  {
+  function setAddressAsProxy(
+    bytes32 id,
+    address implementationAddress
+  ) external override onlyOwner {
     _updateImpl(id, implementationAddress);
     emit AddressSet(id, implementationAddress, true);
   }
@@ -194,16 +196,20 @@ contract LendingPoolAddressesProvider is Ownable, ILendingPoolAddressesProvider 
   function _updateImpl(bytes32 id, address newAddress) internal {
     address payable proxyAddress = payable(_addresses[id]);
 
-    InitializableImmutableAdminUpgradeabilityProxy proxy =
-      InitializableImmutableAdminUpgradeabilityProxy(proxyAddress);
+    InitializableImmutableAdminUpgradeabilityProxy proxy = InitializableImmutableAdminUpgradeabilityProxy(
+        proxyAddress
+      );
     bytes memory params = abi.encodeWithSignature('initialize(address)', address(this));
 
     if (proxyAddress == address(0)) {
+      // 如果代理合约为空，创建代理合约
       proxy = new InitializableImmutableAdminUpgradeabilityProxy(address(this));
+      // 初始化，传入实现地址和参数
       proxy.initialize(newAddress, params);
       _addresses[id] = address(proxy);
       emit ProxyCreated(id, address(proxy));
     } else {
+      // 替换实现地址
       proxy.upgradeToAndCall(newAddress, params);
     }
   }

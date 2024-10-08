@@ -43,6 +43,20 @@ import {LendingPoolStorage} from './LendingPoolStorage.sol';
  *   LendingPoolAddressesProvider
  * @author Aave
  **/
+/**
+ * 最主要的入口合约，大部分情况下，用户与此合约交互
+ * - 用户可以：
+ * # 存款
+ * # 取款
+ * # 借款
+ * # 偿还
+ * # 在浮动利率和稳定利率之间交换贷款
+ * # 启用/禁用存款作为抵押品，重新平衡稳定利率借款头寸
+ * # 清算头寸
+ * # 执行闪电贷
+ * - 受代理合约约束，由特定市场的 LendingPoolAddressesProvider 拥有
+ * - 所有admin功能均由 LendingPoolConfigurator 合约调用，该合约也定义在LendingPoolAddressesProvider
+ */
 contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage {
   using SafeMath for uint256;
   using WadRayMath for uint256;
@@ -56,6 +70,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
     _;
   }
 
+  // 只有为 LedingPool 合约提供配置功能的合约可以调用
   modifier onlyLendingPoolConfigurator() {
     _onlyLendingPoolConfigurator();
     _;
@@ -83,9 +98,13 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
    *   on subsequent operations
    * @param provider The address of the LendingPoolAddressesProvider
    **/
+  // 被代理合约委托代用时初始化
   function initialize(ILendingPoolAddressesProvider provider) public initializer {
+    // address provider合约地址
     _addressesProvider = provider;
+    // 最大借款数量，以1e4计
     _maxStableRateBorrowSizePercent = 2500;
+    // 手续费比例，万9
     _flashLoanPremiumTotal = 9;
     _maxNumberOfReserves = 128;
   }
@@ -104,22 +123,40 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
   function deposit(
     address asset,
     uint256 amount,
+    // recipient
     address onBehalfOf,
     uint16 referralCode
   ) external override whenNotPaused {
     DataTypes.ReserveData storage reserve = _reserves[asset];
 
+    // amount不能为0，资产必须是激活状态，且没有处于冻结状态
     ValidationLogic.validateDeposit(reserve, amount);
 
     address aToken = reserve.aTokenAddress;
 
+    // 更新资产的状态变量
     reserve.updateState();
+    // 更新资产的利率模型变量
     reserve.updateInterestRates(asset, aToken, amount, 0);
 
+    // 把资产转移给aToken合约
     IERC20(asset).safeTransferFrom(msg.sender, aToken, amount);
 
+    // 将 aToken mint给 onBehalfOf 地址（一般是 msg.sender）
+    // isFirstDeposit 代表该资产是否是第一次被存入或之前抵押余额为0
+    // 注意：这里实际mint的aToken数量是 amount / reserve.liquidityIndex，合约存储的是缩小后的数量
+    // 当调用aToken的balanceOf时，会返回缩小数量 * NI（标准化收入，由下面的getReserveNormalizedIncome函数获取）的实际数量
+
+    // 为什么aave要把余额缩小，而不直接使用实际余额呢？
+    // 因为aToken的余额代币的是本金+利息，利息是一直增长的，假如存储实际余额，那么这个值就需要在每一个action后更新
+    // 对区块链上的众多用户来说是不现实的，那怎么办呢，我们可以把用户现在充值的数量，假设为在t0时刻充值的数量，这样所有用户都以使用同一个公式
+    // aToken存储数量(ScB)乘以当前的NI，来计算当前的实际余额。
+    // 假设为在t0时刻充值的数量其实就是 amount / reserve.liquidityIndex，进行缩小
+    // 举个例子：初始NI为1，假设在第10个块的NI变成了10，那么在初始时充值的1块钱，就变成了10块
+    // 那么某个用户在第5个块（假设NI为5）充值了1块钱，在现在肯定不能直接乘以10，这个数量需要进行缩小 1 / 5 = 0.2，现在的实际余额就为 0.2 * 10 = 2，是正确的
     bool isFirstDeposit = IAToken(aToken).mint(onBehalfOf, amount, reserve.liquidityIndex);
 
+    // 若第一次被存入，默认将用户 onBehalfOf 的配置中相应资产转为可抵押类型
     if (isFirstDeposit) {
       _usersConfig[onBehalfOf].setUsingAsCollateral(reserve.id, true);
       emit ReserveUsedAsCollateralEnabled(asset, onBehalfOf);
@@ -254,8 +291,9 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
       variableDebt
     );
 
-    uint256 paybackAmount =
-      interestRateMode == DataTypes.InterestRateMode.STABLE ? stableDebt : variableDebt;
+    uint256 paybackAmount = interestRateMode == DataTypes.InterestRateMode.STABLE
+      ? stableDebt
+      : variableDebt;
 
     if (amount < paybackAmount) {
       paybackAmount = amount;
@@ -384,11 +422,10 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
    * @param asset The address of the underlying asset deposited
    * @param useAsCollateral `true` if the user wants to use the deposit as collateral, `false` otherwise
    **/
-  function setUserUseReserveAsCollateral(address asset, bool useAsCollateral)
-    external
-    override
-    whenNotPaused
-  {
+  function setUserUseReserveAsCollateral(
+    address asset,
+    bool useAsCollateral
+  ) external override whenNotPaused {
     DataTypes.ReserveData storage reserve = _reserves[asset];
 
     ValidationLogic.validateSetUseReserveAsCollateral(
@@ -432,17 +469,16 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
     address collateralManager = _addressesProvider.getLendingPoolCollateralManager();
 
     //solium-disable-next-line
-    (bool success, bytes memory result) =
-      collateralManager.delegatecall(
-        abi.encodeWithSignature(
-          'liquidationCall(address,address,address,uint256,bool)',
-          collateralAsset,
-          debtAsset,
-          user,
-          debtToCover,
-          receiveAToken
-        )
-      );
+    (bool success, bytes memory result) = collateralManager.delegatecall(
+      abi.encodeWithSignature(
+        'liquidationCall(address,address,address,uint256,bool)',
+        collateralAsset,
+        debtAsset,
+        user,
+        debtToCover,
+        receiveAToken
+      )
+    );
 
     require(success, Errors.LP_LIQUIDATION_CALL_FAILED);
 
@@ -568,12 +604,9 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
    * @param asset The address of the underlying asset of the reserve
    * @return The state of the reserve
    **/
-  function getReserveData(address asset)
-    external
-    view
-    override
-    returns (DataTypes.ReserveData memory)
-  {
+  function getReserveData(
+    address asset
+  ) external view override returns (DataTypes.ReserveData memory) {
     return _reserves[asset];
   }
 
@@ -587,7 +620,9 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
    * @return ltv the loan to value of the user
    * @return healthFactor the current health factor of the user
    **/
-  function getUserAccountData(address user)
+  function getUserAccountData(
+    address user
+  )
     external
     view
     override
@@ -627,12 +662,9 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
    * @param asset The address of the underlying asset of the reserve
    * @return The configuration of the reserve
    **/
-  function getConfiguration(address asset)
-    external
-    view
-    override
-    returns (DataTypes.ReserveConfigurationMap memory)
-  {
+  function getConfiguration(
+    address asset
+  ) external view override returns (DataTypes.ReserveConfigurationMap memory) {
     return _reserves[asset].configuration;
   }
 
@@ -641,12 +673,9 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
    * @param user The user address
    * @return The configuration of the user
    **/
-  function getUserConfiguration(address user)
-    external
-    view
-    override
-    returns (DataTypes.UserConfigurationMap memory)
-  {
+  function getUserConfiguration(
+    address user
+  ) external view override returns (DataTypes.UserConfigurationMap memory) {
     return _usersConfig[user];
   }
 
@@ -655,13 +684,11 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
    * @param asset The address of the underlying asset of the reserve
    * @return The reserve's normalized income
    */
-  function getReserveNormalizedIncome(address asset)
-    external
-    view
-    virtual
-    override
-    returns (uint256)
-  {
+  // 获取资产标准化收入的值，这个值和流动性指数（LI）是一致的，只是代表含义不同，在这里表示的是aToken数量的缩放系数
+  // 详见ReserveLogic的getNormalizedIncome函数
+  function getReserveNormalizedIncome(
+    address asset
+  ) external view virtual override returns (uint256) {
     return _reserves[asset].getNormalizedIncome();
   }
 
@@ -670,12 +697,9 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
    * @param asset The address of the underlying asset of the reserve
    * @return The reserve normalized variable debt
    */
-  function getReserveNormalizedVariableDebt(address asset)
-    external
-    view
-    override
-    returns (uint256)
-  {
+  function getReserveNormalizedVariableDebt(
+    address asset
+  ) external view override returns (uint256) {
     return _reserves[asset].getNormalizedDebt();
   }
 
@@ -713,7 +737,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
   }
 
   /**
-   * @dev Returns the fee on flash loans 
+   * @dev Returns the fee on flash loans
    */
   function FLASHLOAN_PREMIUM_TOTAL() public view returns (uint256) {
     return _flashLoanPremiumTotal;
@@ -805,11 +829,10 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
    * @param asset The address of the underlying asset of the reserve
    * @param rateStrategyAddress The address of the interest rate strategy contract
    **/
-  function setReserveInterestRateStrategyAddress(address asset, address rateStrategyAddress)
-    external
-    override
-    onlyLendingPoolConfigurator
-  {
+  function setReserveInterestRateStrategyAddress(
+    address asset,
+    address rateStrategyAddress
+  ) external override onlyLendingPoolConfigurator {
     _reserves[asset].interestRateStrategyAddress = rateStrategyAddress;
   }
 
@@ -819,11 +842,10 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
    * @param asset The address of the underlying asset of the reserve
    * @param configuration The new configuration bitmap
    **/
-  function setConfiguration(address asset, uint256 configuration)
-    external
-    override
-    onlyLendingPoolConfigurator
-  {
+  function setConfiguration(
+    address asset,
+    uint256 configuration
+  ) external override onlyLendingPoolConfigurator {
     _reserves[asset].configuration.data = configuration;
   }
 
@@ -858,10 +880,9 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
 
     address oracle = _addressesProvider.getPriceOracle();
 
-    uint256 amountInETH =
-      IPriceOracleGetter(oracle).getAssetPrice(vars.asset).mul(vars.amount).div(
-        10**reserve.configuration.getDecimals()
-      );
+    uint256 amountInETH = IPriceOracleGetter(oracle).getAssetPrice(vars.asset).mul(vars.amount).div(
+      10 ** reserve.configuration.getDecimals()
+    );
 
     ValidationLogic.validateBorrow(
       vars.asset,

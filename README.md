@@ -1,3 +1,8 @@
+# Why
+I read the principle of Aave before, but it is a bit fuzzy after a long time. Here I add code comments to deepen my understanding of the details.
+
+之前看过Aave的原理，时间久了记忆有点模糊，这里通过添加代码注释的方式加深一下对细节的理解。
+
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Build pass](https://github.com/AAVE/protocol-v2/actions/workflows/node.js.yml/badge.svg)](https://github.com/aave/protocol-v2/actions/workflows/node.js.yml)
 ```
