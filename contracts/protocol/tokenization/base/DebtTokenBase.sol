@@ -18,6 +18,8 @@ abstract contract DebtTokenBase is
   VersionedInitializable,
   ICreditDelegationToken
 {
+  // 借款授权额度 fromUser => toUser => amount
+  // 把借款权力送给其他人
   mapping(address => mapping(address => uint256)) internal _borrowAllowances;
 
   /**
@@ -35,7 +37,7 @@ abstract contract DebtTokenBase is
    * respect the liquidation constraints (even if delegated, a delegatee cannot
    * force a delegator HF to go below 1)
    **/
-  // msg.sender 授权给目标地址 delegatee 债务额度，承诺可代 delegatee 偿还一定数量的债务。
+  // msg.sender 授权给目标地址 delegatee 债务额度，也就是可以帮 delegatee 偿还一定数量的债务，token打给delegatee，账务还是msg.sender负责
   function approveDelegation(address delegatee, uint256 amount) external override {
     _borrowAllowances[_msgSender()][delegatee] = amount;
     emit BorrowAllowanceDelegated(_msgSender(), delegatee, _getUnderlyingAssetAddress(), amount);
@@ -47,7 +49,7 @@ abstract contract DebtTokenBase is
    * @param toUser The user to give allowance to
    * @return the current allowance of toUser
    **/
-  //  返回fromUser授权给toUser的可代还债务额度
+  //  返回fromUser授权给toUser的借款额度
   function borrowAllowance(
     address fromUser,
     address toUser
@@ -109,7 +111,7 @@ abstract contract DebtTokenBase is
     revert('ALLOWANCE_NOT_SUPPORTED');
   }
 
-  // 减少授权可代还额度，在debt token mint时调用
+  // 减少借款授权额度，在debtToken mint时调用
   function _decreaseBorrowAllowance(address delegator, address delegatee, uint256 amount) internal {
     uint256 newAllowance = _borrowAllowances[delegator][delegatee].sub(
       amount,

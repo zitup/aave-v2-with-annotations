@@ -207,18 +207,23 @@ library ReserveLogic {
   ) internal {
     UpdateInterestRatesLocalVars memory vars;
 
+    // 获取stableDebtToken地址
     vars.stableDebtTokenAddress = reserve.stableDebtTokenAddress;
 
+    // 获取固定借款token的实际总数量和平均固定利率
     (vars.totalStableDebt, vars.avgStableRate) = IStableDebtToken(vars.stableDebtTokenAddress)
       .getTotalSupplyAndAvgRate();
 
     //calculates the total variable debt locally using the scaled total supply instead
     //of totalSupply(), as it's noticeably cheaper. Also, the index has been
     //updated by the previous updateState() call
+    // 获取动态借款token的实际总数量：ScB * variableBorrowIndex
     vars.totalVariableDebt = IVariableDebtToken(reserve.variableDebtTokenAddress)
       .scaledTotalSupply()
       .rayMul(reserve.variableBorrowIndex);
 
+    // 更新利率变量，注意这里返回的是uint256类型
+    // 详见 DefaultReserveInterestRateStrategy.calculateInterestRates
     (
       vars.newLiquidityRate,
       vars.newStableRate,

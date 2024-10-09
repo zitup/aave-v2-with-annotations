@@ -20,12 +20,21 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
 
   uint256 public constant DEBT_TOKEN_REVISION = 0x1;
 
+  // 平均固定利率
+  // 需要注意的是, 这里所说的 平均利率 = 池子中贷款总利息 / 池子中的贷款总金额
+  // 举例来说就是池子中总共有 100$, 用户 A 借了 40$ 利率是 20%, 用户 B 借了 60$ 利率是 30%
+  // 那么 平均利率 = (40 * 20% + 60 * 30%) / 100 = 26%
   uint256 internal _avgStableRate;
+  // 用户上次操作的时间
   mapping(address => uint40) internal _timestamps;
+  // 用户的平均固定利率
   mapping(address => uint256) internal _usersStableRate;
+  // debtToken 上次操作的时间
   uint40 internal _totalSupplyTimestamp;
 
+  // lending pool 地址
   ILendingPool internal _pool;
+  // debtToken 底层资产
   address internal _underlyingAsset;
   IAaveIncentivesController internal _incentivesController;
 
@@ -38,6 +47,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
    * @param debtTokenName The name of the token
    * @param debtTokenSymbol The symbol of the token
    */
+  // 初始化配置，包括lending pool地址，底层资产地址，incentivesController地址，debtToken的decimals/名字/符号
   function initialize(
     ILendingPool pool,
     address underlyingAsset,
@@ -86,6 +96,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
    * @dev Returns the timestamp of the last user action
    * @return The last update timestamp
    **/
+  // 返回用户上次操作的时间
   function getUserLastUpdated(address user) external view virtual override returns (uint40) {
     return _timestamps[user];
   }
@@ -95,6 +106,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
    * @param user The address of the user
    * @return The stable rate of user
    **/
+  // 返回用户的平均固定利率
   function getUserStableRate(address user) external view virtual override returns (uint256) {
     return _usersStableRate[user];
   }
@@ -103,16 +115,22 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
    * @dev Calculates the current user debt balance
    * @return The accumulated debt of the user
    **/
+  // 返回用户的实际债务数量余额
   function balanceOf(address account) public view virtual override returns (uint256) {
+    // 合约存储的缩小后的债务数量
     uint256 accountBalance = super.balanceOf(account);
+    // 用户的平均固定利率
     uint256 stableRate = _usersStableRate[account];
+    // 没债务就返回0（放上一句不是更好，万一以后改状态的函数用到了，还可以省点gas :)
     if (accountBalance == 0) {
       return 0;
     }
+    // 计算最新借款指数，包含了上次操作更新时间到当前时间的差
     uint256 cumulatedInterest = MathUtils.calculateCompoundedInterest(
       stableRate,
       _timestamps[account]
     );
+    // ScB * borrow index
     return accountBalance.rayMul(cumulatedInterest);
   }
 
@@ -294,6 +312,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
   /**
    * @dev Returns the the total supply and the average stable rate
    **/
+  // 获取
   function getTotalSupplyAndAvgRate() public view override returns (uint256, uint256) {
     uint256 avgRate = _avgStableRate;
     return (_calcTotalSupply(avgRate), avgRate);
@@ -369,6 +388,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
    * @param avgRate The average rate at which the total supply increases
    * @return The debt balance of the user since the last burn/mint action
    **/
+  // 计算debtToken实际总数量： ScB * 最新的固定借款利率指数
   function _calcTotalSupply(uint256 avgRate) internal view virtual returns (uint256) {
     uint256 principalSupply = super.totalSupply();
 
@@ -376,7 +396,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
       return 0;
     }
 
-    // 包含了上一次更新到当前时间的 固定利率借款指数
+    // 包含了debtToken上一次更新到当前时间的 固定利率借款指数
     uint256 cumulatedInterest = MathUtils.calculateCompoundedInterest(
       avgRate,
       _totalSupplyTimestamp

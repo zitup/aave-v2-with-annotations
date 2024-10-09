@@ -136,7 +136,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
 
     // 更新资产的状态变量
     reserve.updateState();
-    // 更新资产的利率模型变量
+    // 更新资产的利率模型变量，固定借款利率、动态借款利率、流动性率
     reserve.updateInterestRates(asset, aToken, amount, 0);
 
     // 把资产转移给aToken合约
