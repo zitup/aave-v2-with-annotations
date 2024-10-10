@@ -35,6 +35,7 @@ contract DefaultReserveInterestRateStrategy is IReserveInterestRateStrategy {
    * Expressed in ray
    **/
 
+  // = 1-optimal utilization
   uint256 public immutable EXCESS_UTILIZATION_RATE;
 
   ILendingPoolAddressesProvider public immutable addressesProvider;
@@ -178,10 +179,17 @@ contract DefaultReserveInterestRateStrategy is IReserveInterestRateStrategy {
       ? 0
       : vars.totalDebt.rayDiv(availableLiquidity.add(vars.totalDebt));
 
+    // 获取预言机提供的多个市场的加权平均利率，作为固定利率的基准利率 即 R_base
+    // 这个值由链下计算并更新到链上
     vars.currentStableBorrowRate = ILendingRateOracle(addressesProvider.getLendingRateOracle())
       .getMarketBorrowRate(reserve);
 
+    // U > U_optimal
+    // 计算借贷利率使用公式 R_base + R_slope1 + ((U - U_optimal) / (1 - U_optimal)) * R_slope2
+    // 固定利率和动态利率的区别在于R_base不同
+    // 固定利率的R_base由LendingRateOracle提供，动态利率的R_base由配置写死
     if (vars.utilizationRate > OPTIMAL_UTILIZATION_RATE) {
+      // (U - U_optimal) / (1 - U_optimal)
       uint256 excessUtilizationRateRatio = vars
         .utilizationRate
         .sub(OPTIMAL_UTILIZATION_RATE)
