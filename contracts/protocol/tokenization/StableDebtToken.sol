@@ -125,7 +125,8 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
     if (accountBalance == 0) {
       return 0;
     }
-    // 计算最新借款指数，包含了上次操作更新时间到当前时间的差
+    // 复利计算最新借款利率，包含了上次操作更新时间到当前时间的差
+    // 类似动态借款利率指数，表示当前每单位debtToken应还款数量
     uint256 cumulatedInterest = MathUtils.calculateCompoundedInterest(
       stableRate,
       _timestamps[account]
@@ -388,7 +389,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
    * @param avgRate The average rate at which the total supply increases
    * @return The debt balance of the user since the last burn/mint action
    **/
-  // 计算debtToken实际总数量： ScB * 最新的固定借款利率指数
+  // 计算debtToken实际总数量： ScB * 最新的固定借款利率
   function _calcTotalSupply(uint256 avgRate) internal view virtual returns (uint256) {
     uint256 principalSupply = super.totalSupply();
 
@@ -396,7 +397,8 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
       return 0;
     }
 
-    // 包含了debtToken上一次更新到当前时间的 固定利率借款指数
+    // 包含了debtToken上一次更新到当前时间的 累计固定借款利率
+    // 类似动态借款利率指数，表示当前每单位debtToken应还款数量
     uint256 cumulatedInterest = MathUtils.calculateCompoundedInterest(
       avgRate,
       _totalSupplyTimestamp

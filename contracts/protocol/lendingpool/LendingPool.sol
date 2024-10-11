@@ -235,11 +235,14 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
    * calling the function if he wants to borrow against his own collateral, or the address of the credit delegator
    * if he has been given credit delegation allowance
    **/
+  // 借款
+  // 用户有抵押或者有其它用户的借款授权
   function borrow(
     address asset,
     uint256 amount,
     uint256 interestRateMode,
     uint16 referralCode,
+    // 借款人的地址或者信用委托人（授权msg.sender使用他的借款额度）的地址
     address onBehalfOf
   ) external override whenNotPaused {
     DataTypes.ReserveData storage reserve = _reserves[asset];
@@ -865,12 +868,16 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
 
   struct ExecuteBorrowParams {
     address asset;
+    // 借款受益人
     address user;
+    // 还款人
     address onBehalfOf;
     uint256 amount;
+    // 借贷类型 固定 1 动态 2
     uint256 interestRateMode;
     address aTokenAddress;
     uint16 referralCode;
+    // 是否释放借贷资产给受益人，一般为true
     bool releaseUnderlying;
   }
 

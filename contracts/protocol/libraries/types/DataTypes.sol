@@ -24,17 +24,16 @@ library DataTypes {
     // 详见MathUtils.calculateCompoundedInterest
     uint128 variableBorrowIndex;
     //the current supply rate. Expressed in ray
-    // 当前流动性率，等于总的借贷利率 × 资金利用率
+    // 当前流动性率，等于总的借款利率 × 资金利用率 × (1 - 协议费率)
     // 公式推导：
     // 假设资金利用率为 U，表示借出资金占总存款的比例
-    // 那么借出资金产生的总利息 = 总存款 × 资金利用率(U) × 总借贷利率(R)
-    // 存款人获得的利息 = 总存款 × 资金利用率(U) × 总借贷利率(R) × (1 - 协议费率)
+    // 那么借出资金产生的总利息 = 总存款 × 资金利用率(U) × 总借款利率(R)
+    // 存款人获得的利息 = 总存款 × 资金利用率(U) × 总借款利率(R) × (1 - 协议费率)
     // 对于存款人来说,他们关心的是自己的存款能获得多少收益。这个收益率就是流动性率(LR),
     // 它等于存款人获得的利息除以总存款: LR = (总存款 × U × R × (1 - 协议费率)) / 总存款 = U × R × (1 - 协议费率)
-    // 在Aave的设计中,协议费率是一个常数(目前为10%)。所以为了简化模型,Aave直接将(1 - 协议费率)的部分纳入了总借贷利率(R)的计算中,然后得到了最终的公式: LR = U × R
     uint128 currentLiquidityRate;
     //the current variable borrow rate. Expressed in ray
-    // 借款利率
+    // 当前市场的动态借款利率
     // AAVE设置了资产的最佳使用率（U_optimal）。当使用率少于最佳使用率的时候，利率增长是很平缓的，当使用率超过这个值，利率显著增加。
     // 也就是说，借款利率的计算公式分为两种
     //     ⎧ R_base + (U / U_optimal) * R_slope1, U < U_optimal
@@ -46,7 +45,7 @@ library DataTypes {
     // 这里是VR，动态借款利率
     uint128 currentVariableBorrowRate;
     //the current stable borrow rate. Expressed in ray
-    // 这里是SR，固定借款利率
+    // 这里是SR，当前市场的固定借款利率
     uint128 currentStableBorrowRate;
     // 上次更新的时间戳
     uint40 lastUpdateTimestamp;

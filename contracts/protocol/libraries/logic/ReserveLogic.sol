@@ -222,7 +222,8 @@ library ReserveLogic {
       .scaledTotalSupply()
       .rayMul(reserve.variableBorrowIndex);
 
-    // 更新利率变量，注意这里返回的是uint256类型
+    // 计算利率变量 LiquidityRate, StableRate, VariableRate
+    // 注意这里返回的是uint256类型
     // 详见 DefaultReserveInterestRateStrategy.calculateInterestRates
     (
       vars.newLiquidityRate,
@@ -242,6 +243,7 @@ library ReserveLogic {
     require(vars.newStableRate <= type(uint128).max, Errors.RL_STABLE_BORROW_RATE_OVERFLOW);
     require(vars.newVariableRate <= type(uint128).max, Errors.RL_VARIABLE_BORROW_RATE_OVERFLOW);
 
+    // 更新利率变量
     reserve.currentLiquidityRate = uint128(vars.newLiquidityRate);
     reserve.currentStableBorrowRate = uint128(vars.newStableRate);
     reserve.currentVariableBorrowRate = uint128(vars.newVariableRate);
@@ -321,7 +323,7 @@ library ReserveLogic {
     vars.currentVariableDebt = scaledVariableDebt.rayMul(newVariableBorrowIndex);
 
     //calculate the stable debt until the last timestamp update
-    // 复利计算固定利率借款的利息涨幅（其实就是固定利率借款指数，这里取名字叫Interset，不太清晰），考虑了timestamp-vars.stableSupplyUpdatedTimestamp这段时间
+    // 复利计算固定利率借款的利率（类似动态利率借款指数，表示当前每单位debtToken应还款数量），考虑了timestamp-vars.stableSupplyUpdatedTimestamp这段时间
     // 存疑：这里的两个时间，如何确保资产的上一次更新时间 大于 借款token的上一次更新时间？
     vars.cumulatedStableInterest = MathUtils.calculateCompoundedInterest(
       vars.avgStableRate,
