@@ -30,7 +30,7 @@ contract LendingPoolStorage {
   // 合约是否暂停
   bool internal _paused;
 
-  // 以稳定利率计算的最大借款数量占流动性的比例，分母1e4
+  // 固定利率借款数量占流动性的最大比例，分母1e4
   uint256 internal _maxStableRateBorrowSizePercent;
 
   // 闪电贷手续费比例，分母1e4

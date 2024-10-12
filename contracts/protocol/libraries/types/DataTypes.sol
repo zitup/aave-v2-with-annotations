@@ -65,7 +65,8 @@ library DataTypes {
   }
 
   struct ReserveConfigurationMap {
-    // 锁定价值
+    // Loan to Value
+    // 借款占质押价值的比例
     //bit 0-15: LTV
     // 清算阈值
     //bit 16-31: Liq. threshold

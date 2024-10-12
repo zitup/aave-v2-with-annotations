@@ -89,7 +89,7 @@ library GenericLogic {
     }
 
     vars.amountToDecreaseInETH = IPriceOracleGetter(oracle).getAssetPrice(asset).mul(amount).div(
-      10**vars.decimals
+      10 ** vars.decimals
     );
 
     vars.collateralBalanceAfterDecrease = vars.totalCollateralInETH.sub(vars.amountToDecreaseInETH);
@@ -105,12 +105,11 @@ library GenericLogic {
       .sub(vars.amountToDecreaseInETH.mul(vars.liquidationThreshold))
       .div(vars.collateralBalanceAfterDecrease);
 
-    uint256 healthFactorAfterDecrease =
-      calculateHealthFactorFromBalances(
-        vars.collateralBalanceAfterDecrease,
-        vars.totalDebtInETH,
-        vars.liquidationThresholdAfterDecrease
-      );
+    uint256 healthFactorAfterDecrease = calculateHealthFactorFromBalances(
+      vars.collateralBalanceAfterDecrease,
+      vars.totalDebtInETH,
+      vars.liquidationThresholdAfterDecrease
+    );
 
     return healthFactorAfterDecrease >= GenericLogic.HEALTH_FACTOR_LIQUIDATION_THRESHOLD;
   }
@@ -147,6 +146,9 @@ library GenericLogic {
    * @param oracle The price oracle address
    * @return The total collateral and total debt of the user in ETH, the avg ltv, liquidation threshold and the HF
    **/
+  // 计算用户跨资产的数据，包括：
+  // 以ETH计价的流动性/质押/借款数量，
+  // 平均LTV，平均清算阈值，健康系数
   function calculateUserAccountData(
     address user,
     mapping(address => DataTypes.ReserveData) storage reservesData,
@@ -154,70 +156,86 @@ library GenericLogic {
     mapping(uint256 => address) storage reserves,
     uint256 reservesCount,
     address oracle
-  )
-    internal
-    view
-    returns (
-      uint256,
-      uint256,
-      uint256,
-      uint256,
-      uint256
-    )
-  {
+  ) internal view returns (uint256, uint256, uint256, uint256, uint256) {
     CalculateUserAccountDataVars memory vars;
 
+    // 空数据返回空参数
     if (userConfig.isEmpty()) {
       return (0, 0, 0, 0, uint256(-1));
     }
+    // 遍历当前所有资产，累计用户在每个资产的质押数量、借款数量、借出数量、清算数量
     for (vars.i = 0; vars.i < reservesCount; vars.i++) {
+      // 如果既没有用作质押，也没有借款，则跳过这个资产
       if (!userConfig.isUsingAsCollateralOrBorrowing(vars.i)) {
         continue;
       }
 
+      // 资产地址
       vars.currentReserveAddress = reserves[vars.i];
+      // 资产属性
       DataTypes.ReserveData storage currentReserve = reservesData[vars.currentReserveAddress];
 
+      // 获取LTV，清算阈值，decimals
       (vars.ltv, vars.liquidationThreshold, , vars.decimals, ) = currentReserve
         .configuration
         .getParams();
 
-      vars.tokenUnit = 10**vars.decimals;
+      vars.tokenUnit = 10 ** vars.decimals;
+      // 获取当前资产以ETH计算的价格
       vars.reserveUnitPrice = IPriceOracleGetter(oracle).getAssetPrice(vars.currentReserveAddress);
 
+      // 如果资产的清算阈值不等于0 而且 用户把这个资产作为了抵押
       if (vars.liquidationThreshold != 0 && userConfig.isUsingAsCollateral(vars.i)) {
+        // 获取用户当前的实际质押数量
         vars.compoundedLiquidityBalance = IERC20(currentReserve.aTokenAddress).balanceOf(user);
 
-        uint256 liquidityBalanceETH =
-          vars.reserveUnitPrice.mul(vars.compoundedLiquidityBalance).div(vars.tokenUnit);
+        // 将实际质押数量换算为ETH表示的数量
+        // 资产流动性余额 in ETH
+        uint256 liquidityBalanceETH = vars
+          .reserveUnitPrice
+          .mul(vars.compoundedLiquidityBalance)
+          .div(vars.tokenUnit);
 
+        // 累计 总质押数量 in ETH
         vars.totalCollateralInETH = vars.totalCollateralInETH.add(liquidityBalanceETH);
 
+        // 累计 质押借出数量 in ETH
+        // liquidityBalanceETH.mul(vars.ltv) 为用户当前资产的借出数量
+        // 这不应该叫avgLtv ，其实是总借款数量，下面会用这个值除以总质押数量，得到真正的平均LTV
         vars.avgLtv = vars.avgLtv.add(liquidityBalanceETH.mul(vars.ltv));
+        // 累计 总清算数量 in ETH
+        // 同上，不应该叫avgLiquidationThreshold
         vars.avgLiquidationThreshold = vars.avgLiquidationThreshold.add(
           liquidityBalanceETH.mul(vars.liquidationThreshold)
         );
       }
 
+      // 如果用户之前借入了此资产
       if (userConfig.isBorrowing(vars.i)) {
+        // 固定利率借款的实际数量
         vars.compoundedBorrowBalance = IERC20(currentReserve.stableDebtTokenAddress).balanceOf(
           user
         );
+        // 叠加动态利率借款的实际数量
         vars.compoundedBorrowBalance = vars.compoundedBorrowBalance.add(
           IERC20(currentReserve.variableDebtTokenAddress).balanceOf(user)
         );
 
+        // 累计 总借款数量 in ETH
         vars.totalDebtInETH = vars.totalDebtInETH.add(
           vars.reserveUnitPrice.mul(vars.compoundedBorrowBalance).div(vars.tokenUnit)
         );
       }
     }
 
+    // 计算平均LTV 总借出数量 / 总质押数量
     vars.avgLtv = vars.totalCollateralInETH > 0 ? vars.avgLtv.div(vars.totalCollateralInETH) : 0;
+    // 计算平均清算阈值 总清算数量 / 总质押数量
     vars.avgLiquidationThreshold = vars.totalCollateralInETH > 0
       ? vars.avgLiquidationThreshold.div(vars.totalCollateralInETH)
       : 0;
 
+    // 计算健康系数
     vars.healthFactor = calculateHealthFactorFromBalances(
       vars.totalCollateralInETH,
       vars.totalDebtInETH,

@@ -102,7 +102,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
   function initialize(ILendingPoolAddressesProvider provider) public initializer {
     // address provider合约地址
     _addressesProvider = provider;
-    // 最大借款数量，以1e4计
+    // 固定利率借款数量占流动性的最大比例，25%
     _maxStableRateBorrowSizePercent = 2500;
     // 手续费比例，万9
     _flashLoanPremiumTotal = 9;
@@ -882,15 +882,30 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
   }
 
   function _executeBorrow(ExecuteBorrowParams memory vars) internal {
+    // 要借的资产的属性
     DataTypes.ReserveData storage reserve = _reserves[vars.asset];
+    // 用户配置
     DataTypes.UserConfigurationMap storage userConfig = _usersConfig[vars.onBehalfOf];
 
+    // 获取预言机地址
     address oracle = _addressesProvider.getPriceOracle();
 
+    // 转换成ETH数量（getAssetPrice返回的是用eth表示的价格）
     uint256 amountInETH = IPriceOracleGetter(oracle).getAssetPrice(vars.asset).mul(vars.amount).div(
       10 ** reserve.configuration.getDecimals()
     );
 
+    // 资产激活状态，没有冻结，数量大于0
+    // 启用了借款
+    // interestRateMode 必须是 VARIABLE 或 STABLE
+    // 质押必须数量大于0
+    // 健康系数必须大于1 ether
+    // 这笔借款需要消耗的质押数量 不能超过 用户当前的质押数量
+    // 如果是固定利率借款，还需满足
+    // 1.要借的资产没有被作为用户的质押资产
+    // 或 资产的LTV为0（表示还未借出过）
+    // 或 借款数量大于质押数量
+    // 2. 借款数量 不能超过 固定利率最大可借流动性
     ValidationLogic.validateBorrow(
       vars.asset,
       reserve,

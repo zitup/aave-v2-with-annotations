@@ -117,13 +117,17 @@ library ValidationLogic {
    * @param oracle The price oracle
    */
 
+  // 给定资产，数量等参数，校验是否可以借款
   function validateBorrow(
     address asset,
+    // 下面传入了_reserves存储变量，这里还传入了asset对应的数据，两个重复
+    // 其实可以只传_reserves
     DataTypes.ReserveData storage reserve,
     address userAddress,
     uint256 amount,
     uint256 amountInETH,
     uint256 interestRateMode,
+    // 固定利率借款数量占流动性的最大比例
     uint256 maxStableLoanPercent,
     mapping(address => DataTypes.ReserveData) storage reservesData,
     DataTypes.UserConfigurationMap storage userConfig,
@@ -137,19 +141,28 @@ library ValidationLogic {
       .configuration
       .getFlags();
 
+    // 资产激活状态，没有冻结，数量大于0
     require(vars.isActive, Errors.VL_NO_ACTIVE_RESERVE);
     require(!vars.isFrozen, Errors.VL_RESERVE_FROZEN);
     require(amount != 0, Errors.VL_INVALID_AMOUNT);
 
+    // 启用了借款
     require(vars.borrowingEnabled, Errors.VL_BORROWING_NOT_ENABLED);
 
     //validate interest rate mode
+    // interestRateMode 必须是 VARIABLE 或 STABLE
     require(
       uint256(DataTypes.InterestRateMode.VARIABLE) == interestRateMode ||
         uint256(DataTypes.InterestRateMode.STABLE) == interestRateMode,
       Errors.VL_INVALID_INTEREST_RATE_MODE_SELECTED
     );
 
+    // 计算用户的当前状态，包括：
+    // 总质押数量
+    // 总借款数量
+    // 当前LTV
+    // 当前清算阈值
+    // 健康系数
     (
       vars.userCollateralBalanceETH,
       vars.userBorrowBalanceETH,
@@ -165,18 +178,26 @@ library ValidationLogic {
       oracle
     );
 
+    // 质押必须数量大于0
     require(vars.userCollateralBalanceETH > 0, Errors.VL_COLLATERAL_BALANCE_IS_0);
 
+    // 健康系数必须大于1 ether
     require(
       vars.healthFactor > GenericLogic.HEALTH_FACTOR_LIQUIDATION_THRESHOLD,
       Errors.VL_HEALTH_FACTOR_LOWER_THAN_LIQUIDATION_THRESHOLD
     );
 
     //add the current already borrowed amount to the amount requested to calculate the total collateral needed.
+    // 计算这笔借款需要消耗的质押数量
+    // currentLtv = 当前借款数量 / 质押数量
+    // 用户最新借款数量 / currentLtv = 这笔借款需要消耗的质押数量
+    // 用户最新借款数量 * 质押数量 / 当前借款数量 = 这笔借款需要消耗的质押数量
+    // 用户最新借款数量 / 当前借款数量 = 这笔借款需要消耗的质押数量 / 质押数量
     vars.amountOfCollateralNeededETH = vars.userBorrowBalanceETH.add(amountInETH).percentDiv(
       vars.currentLtv
     ); //LTV is calculated in percentage
 
+    // 这笔借款需要消耗的质押数量 不能超过 用户当前的质押数量
     require(
       vars.amountOfCollateralNeededETH <= vars.userCollateralBalanceETH,
       Errors.VL_COLLATERAL_CANNOT_COVER_NEW_BORROW
@@ -189,12 +210,21 @@ library ValidationLogic {
      *    they are borrowing, to prevent abuses.
      * 3. Users will be able to borrow only a portion of the total available liquidity
      **/
-
+    /**
+     * 如果用户以固定利率借款，则需要满足以下条件：
+     * 1. 必须启用固定利率借款
+     * 2. 如果用户的抵押品（大部分）与他们借款的货币相同，则用户不能从储备金中借款，以防止滥用。
+     * 3. 用户只能借入总可用流动性的一部分
+     **/
     if (interestRateMode == uint256(DataTypes.InterestRateMode.STABLE)) {
       //check if the borrow mode is stable and if stable rate borrowing is enabled on this reserve
 
+      // 必须启用固定利率借款
       require(vars.stableRateBorrowingEnabled, Errors.VL_STABLE_BORROWING_NOT_ENABLED);
 
+      // 要借的资产没有被作为用户的质押资产
+      // 或 资产的LTV为0（表示还未借出过）
+      // 或 借款数量大于质押数量
       require(
         !userConfig.isUsingAsCollateral(reserve.id) ||
           reserve.configuration.getLtv() == 0 ||
@@ -202,12 +232,15 @@ library ValidationLogic {
         Errors.VL_COLLATERAL_SAME_AS_BORROWING_CURRENCY
       );
 
+      // aToken合约的资产余额，也就是可用流动性
       vars.availableLiquidity = IERC20(asset).balanceOf(reserve.aTokenAddress);
 
       //calculate the max available loan size in stable rate mode as a percentage of the
       //available liquidity
+      // 固定利率最大可借流动性 availableLiquidity * _maxStableRateBorrowSizePercent
       uint256 maxLoanSizeStable = vars.availableLiquidity.percentMul(maxStableLoanPercent);
 
+      // 借款数量 不能超过 固定利率最大可借流动性
       require(amount <= maxLoanSizeStable, Errors.VL_AMOUNT_BIGGER_THAN_MAX_LOAN_SIZE_STABLE);
     }
   }
@@ -312,8 +345,10 @@ library ValidationLogic {
     require(isActive, Errors.VL_NO_ACTIVE_RESERVE);
 
     //if the usage ratio is below 95%, no rebalances are needed
-    uint256 totalDebt =
-      stableDebtToken.totalSupply().add(variableDebtToken.totalSupply()).wadToRay();
+    uint256 totalDebt = stableDebtToken
+      .totalSupply()
+      .add(variableDebtToken.totalSupply())
+      .wadToRay();
     uint256 availableLiquidity = IERC20(reserveAddress).balanceOf(aTokenAddress).wadToRay();
     uint256 usageRatio = totalDebt == 0 ? 0 : totalDebt.rayDiv(availableLiquidity.add(totalDebt));
 
@@ -321,8 +356,9 @@ library ValidationLogic {
     //then we allow rebalancing of the stable rate positions.
 
     uint256 currentLiquidityRate = reserve.currentLiquidityRate;
-    uint256 maxVariableBorrowRate =
-      IReserveInterestRateStrategy(reserve.interestRateStrategyAddress).getMaxVariableBorrowRate();
+    uint256 maxVariableBorrowRate = IReserveInterestRateStrategy(
+      reserve.interestRateStrategyAddress
+    ).getMaxVariableBorrowRate();
 
     require(
       usageRatio >= REBALANCE_UP_USAGE_RATIO_THRESHOLD &&
@@ -413,9 +449,8 @@ library ValidationLogic {
       );
     }
 
-    bool isCollateralEnabled =
-      collateralReserve.configuration.getLiquidationThreshold() > 0 &&
-        userConfig.isUsingAsCollateral(collateralReserve.id);
+    bool isCollateralEnabled = collateralReserve.configuration.getLiquidationThreshold() > 0 &&
+      userConfig.isUsingAsCollateral(collateralReserve.id);
 
     //if collateral isn't enabled as collateral by user, it cannot be liquidated
     if (!isCollateralEnabled) {
@@ -451,15 +486,14 @@ library ValidationLogic {
     uint256 reservesCount,
     address oracle
   ) internal view {
-    (, , , , uint256 healthFactor) =
-      GenericLogic.calculateUserAccountData(
-        from,
-        reservesData,
-        userConfig,
-        reserves,
-        reservesCount,
-        oracle
-      );
+    (, , , , uint256 healthFactor) = GenericLogic.calculateUserAccountData(
+      from,
+      reservesData,
+      userConfig,
+      reserves,
+      reservesCount,
+      oracle
+    );
 
     require(
       healthFactor >= GenericLogic.HEALTH_FACTOR_LIQUIDATION_THRESHOLD,
