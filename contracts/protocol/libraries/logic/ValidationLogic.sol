@@ -121,7 +121,7 @@ library ValidationLogic {
   function validateBorrow(
     address asset,
     // 下面传入了_reserves存储变量，这里还传入了asset对应的数据，两个重复
-    // 其实可以只传_reserves
+    // 其实可以只传 _reserves
     DataTypes.ReserveData storage reserve,
     address userAddress,
     uint256 amount,
@@ -141,12 +141,12 @@ library ValidationLogic {
       .configuration
       .getFlags();
 
-    // 资产激活状态，没有冻结，数量大于0
+    // 资产处于激活状态，没有冻结，借款数量大于0
     require(vars.isActive, Errors.VL_NO_ACTIVE_RESERVE);
     require(!vars.isFrozen, Errors.VL_RESERVE_FROZEN);
     require(amount != 0, Errors.VL_INVALID_AMOUNT);
 
-    // 启用了借款
+    // 资产启用了借款属性
     require(vars.borrowingEnabled, Errors.VL_BORROWING_NOT_ENABLED);
 
     //validate interest rate mode
@@ -178,10 +178,10 @@ library ValidationLogic {
       oracle
     );
 
-    // 质押必须数量大于0
+    // 用户质押必须数量大于0
     require(vars.userCollateralBalanceETH > 0, Errors.VL_COLLATERAL_BALANCE_IS_0);
 
-    // 健康系数必须大于1 ether
+    // 用户健康系数必须大于1 ether
     require(
       vars.healthFactor > GenericLogic.HEALTH_FACTOR_LIQUIDATION_THRESHOLD,
       Errors.VL_HEALTH_FACTOR_LOWER_THAN_LIQUIDATION_THRESHOLD

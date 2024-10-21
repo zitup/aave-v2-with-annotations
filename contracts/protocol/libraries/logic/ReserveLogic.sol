@@ -104,7 +104,7 @@ library ReserveLogic {
    * @dev Updates the liquidity cumulative index and the variable borrow index.
    * @param reserve the reserve object
    **/
-  //  更新资产数据，包括流动性指数、动态借款指数和时间戳
+  // 更新资产数据，包括流动性指数、动态借款指数和时间戳
   function updateState(DataTypes.ReserveData storage reserve) internal {
     // 获取动态债务的总 scaled 数量，合约实际存储数量，即缩放到 t_0 时刻的总数量
     uint256 scaledVariableDebt = IVariableDebtToken(reserve.variableDebtTokenAddress)

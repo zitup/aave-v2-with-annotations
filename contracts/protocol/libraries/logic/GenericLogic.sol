@@ -149,6 +149,7 @@ library GenericLogic {
   // 计算用户跨资产的数据，包括：
   // 以ETH计价的流动性/质押/借款数量，
   // 平均LTV，平均清算阈值，健康系数
+  // 算法很简单：遍历所有资产，算术平均计算这些值
   function calculateUserAccountData(
     address user,
     mapping(address => DataTypes.ReserveData) storage reservesData,

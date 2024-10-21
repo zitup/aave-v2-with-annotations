@@ -247,6 +247,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
   ) external override whenNotPaused {
     DataTypes.ReserveData storage reserve = _reserves[asset];
 
+    // 执行借款逻辑
     _executeBorrow(
       ExecuteBorrowParams(
         asset,
@@ -887,7 +888,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
     // 用户配置
     DataTypes.UserConfigurationMap storage userConfig = _usersConfig[vars.onBehalfOf];
 
-    // 获取预言机地址
+    // 获取资产价格预言机地址
     address oracle = _addressesProvider.getPriceOracle();
 
     // 转换成ETH数量（getAssetPrice返回的是用eth表示的价格）
@@ -895,11 +896,11 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
       10 ** reserve.configuration.getDecimals()
     );
 
-    // 资产激活状态，没有冻结，数量大于0
-    // 启用了借款
+    // 资产处于激活状态，没有冻结，借款数量大于0
+    // 资产启用了借款属性
     // interestRateMode 必须是 VARIABLE 或 STABLE
-    // 质押必须数量大于0
-    // 健康系数必须大于1 ether
+    // 用户质押必须数量大于0
+    // 用户健康系数必须大于1 ether
     // 这笔借款需要消耗的质押数量 不能超过 用户当前的质押数量
     // 如果是固定利率借款，还需满足
     // 1.要借的资产没有被作为用户的质押资产
@@ -921,14 +922,17 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
       oracle
     );
 
+    // 更新资产数据，包括流动性指数、动态借款指数和时间戳
     reserve.updateState();
 
     uint256 currentStableRate = 0;
 
     bool isFirstBorrowing = false;
+    // 如果是固定利率借款
     if (DataTypes.InterestRateMode(vars.interestRateMode) == DataTypes.InterestRateMode.STABLE) {
       currentStableRate = reserve.currentStableBorrowRate;
 
+      // mint 固定利率借款token
       isFirstBorrowing = IStableDebtToken(reserve.stableDebtTokenAddress).mint(
         vars.user,
         vars.onBehalfOf,
@@ -936,6 +940,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
         currentStableRate
       );
     } else {
+      // 动态利率借款
       isFirstBorrowing = IVariableDebtToken(reserve.variableDebtTokenAddress).mint(
         vars.user,
         vars.onBehalfOf,
