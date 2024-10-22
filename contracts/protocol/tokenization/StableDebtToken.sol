@@ -154,44 +154,61 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
    * @param amount The amount of debt tokens to mint
    * @param rate The rate of the debt being minted
    **/
+  // 给onBehalfOf铸造借款token
   function mint(
+    // 接收借款底层资产的地址
     address user,
+    // 还款人
     address onBehalfOf,
     uint256 amount,
     uint256 rate
   ) external override onlyLendingPool returns (bool) {
     MintLocalVars memory vars;
 
+    // 如果两个地址不相等，需要减掉借款额度
     if (user != onBehalfOf) {
       _decreaseBorrowAllowance(onBehalfOf, user, amount);
     }
 
+    // 计算用户当前余额和上次操作以来增加的利息
     (, uint256 currentBalance, uint256 balanceIncrease) = _calculateBalanceIncrease(onBehalfOf);
 
+    // 当前总供应
     vars.previousSupply = totalSupply();
+    // 当前平均利率
     vars.currentAvgStableRate = _avgStableRate;
+    // 更新_totalSupply变量
     vars.nextSupply = _totalSupply = vars.previousSupply.add(amount);
 
     vars.amountInRay = amount.wadToRay();
 
+    // 计算用户新的平均借款利率
+    // 当前利息 / 当前借款数量
+    // (currentAvgRate * currentBalance + amount * rate) / (currentBalance + amount)
     vars.newStableRate = _usersStableRate[onBehalfOf]
       .rayMul(currentBalance.wadToRay())
       .add(vars.amountInRay.rayMul(rate))
       .rayDiv(currentBalance.add(amount).wadToRay());
 
     require(vars.newStableRate <= type(uint128).max, Errors.SDT_STABLE_DEBT_OVERFLOW);
+    // 更新用户借款利率
     _usersStableRate[onBehalfOf] = vars.newStableRate;
 
     //solium-disable-next-line
+    // 更新全局操作时间戳和用户操作时间戳
     _totalSupplyTimestamp = _timestamps[onBehalfOf] = uint40(block.timestamp);
 
     // Calculates the updated average stable rate
+    // 计算全局平均借款利率
+    // = 总利息 / 总借款数量
+    // = (currentAvgStableRate * previousSupply + amount * rate) /
     vars.currentAvgStableRate = _avgStableRate = vars
       .currentAvgStableRate
       .rayMul(vars.previousSupply.wadToRay())
       .add(rate.rayMul(vars.amountInRay))
       .rayDiv(vars.nextSupply.wadToRay());
 
+    // 更新余额
     _mint(onBehalfOf, amount.add(balanceIncrease), vars.previousSupply);
 
     emit Transfer(address(0), onBehalfOf, amount);
@@ -282,6 +299,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
    * @param user The address of the user for which the interest is being accumulated
    * @return The previous principal balance, the new principal balance and the balance increase
    **/
+  // 计算自上次用户互动以来余额的增加
   function _calculateBalanceIncrease(
     address user
   ) internal view returns (uint256, uint256, uint256) {
@@ -292,8 +310,10 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
     }
 
     // Calculation of the accrued interest since the last accumulation
+    // 计算自上次累积以来的应计利息
     uint256 balanceIncrease = balanceOf(user).sub(previousPrincipalBalance);
 
+    // 返回上次余额、最新余额和增加的余额
     return (
       previousPrincipalBalance,
       previousPrincipalBalance.add(balanceIncrease),
@@ -389,7 +409,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
    * @param avgRate The average rate at which the total supply increases
    * @return The debt balance of the user since the last burn/mint action
    **/
-  // 计算debtToken实际总数量： ScB * 最新的固定借款利率
+  // 计算debtToken当前总数量：总供应 * 到当前时间的复利利率
   function _calcTotalSupply(uint256 avgRate) internal view virtual returns (uint256) {
     uint256 principalSupply = super.totalSupply();
 
@@ -415,9 +435,13 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
    * @param oldTotalSupply the total supply before the minting event
    **/
   function _mint(address account, uint256 amount, uint256 oldTotalSupply) internal {
+    // 更新余额
     uint256 oldAccountBalance = _balances[account];
     _balances[account] = oldAccountBalance.add(amount);
 
+    // 分配激励奖励
+    // 0xd784927Ff2f95ba542BfC824c8a8a98F3495f6b5
+    // https://github.com/aave/aave-stake-v2
     if (address(_incentivesController) != address(0)) {
       _incentivesController.handleAction(account, oldTotalSupply, oldAccountBalance);
     }
