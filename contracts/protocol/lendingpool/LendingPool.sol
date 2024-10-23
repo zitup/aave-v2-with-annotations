@@ -933,6 +933,10 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
       currentStableRate = reserve.currentStableBorrowRate;
 
       // mint 固定利率借款token
+      // 同时：
+      // 更新_totalSupply
+      // 更新用户借款利率
+      // 更新全局操作时间戳和用户操作时间戳
       isFirstBorrowing = IStableDebtToken(reserve.stableDebtTokenAddress).mint(
         vars.user,
         vars.onBehalfOf,
@@ -940,7 +944,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
         currentStableRate
       );
     } else {
-      // 动态利率借款
+      // mint 动态利率借款token
       isFirstBorrowing = IVariableDebtToken(reserve.variableDebtTokenAddress).mint(
         vars.user,
         vars.onBehalfOf,

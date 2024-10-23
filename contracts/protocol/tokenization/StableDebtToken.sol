@@ -208,7 +208,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
       .add(rate.rayMul(vars.amountInRay))
       .rayDiv(vars.nextSupply.wadToRay());
 
-    // 更新余额
+    // 更新用户余额
     _mint(onBehalfOf, amount.add(balanceIncrease), vars.previousSupply);
 
     emit Transfer(address(0), onBehalfOf, amount);
