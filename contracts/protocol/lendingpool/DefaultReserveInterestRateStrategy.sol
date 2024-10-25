@@ -237,7 +237,7 @@ contract DefaultReserveInterestRateStrategy is IReserveInterestRateStrategy {
    * @param currentAverageStableBorrowRate The current weighted average of all the stable rate loans
    * @return The weighted averaged borrow rate
    **/
-  // 计算总借款利率，为总动态债务和总稳定债务的加权平均值
+  // 计算总借款利率，为总动态债务和总固定债务的加权平均值
   function _getOverallBorrowRate(
     uint256 totalStableDebt,
     uint256 totalVariableDebt,

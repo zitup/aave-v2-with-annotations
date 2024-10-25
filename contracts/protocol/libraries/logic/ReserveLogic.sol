@@ -82,6 +82,7 @@ library ReserveLogic {
    * @param reserve The reserve object
    * @return The normalized variable debt. expressed in ray
    **/
+  // 获取最新动态借款指数 VI
   function getNormalizedDebt(
     DataTypes.ReserveData storage reserve
   ) internal view returns (uint256) {
@@ -93,6 +94,7 @@ library ReserveLogic {
       return reserve.variableBorrowIndex;
     }
 
+    // 复利计算最新的VI
     uint256 cumulated = MathUtils
       .calculateCompoundedInterest(reserve.currentVariableBorrowRate, timestamp)
       .rayMul(reserve.variableBorrowIndex);

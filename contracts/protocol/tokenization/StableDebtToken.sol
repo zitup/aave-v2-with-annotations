@@ -121,7 +121,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
     uint256 accountBalance = super.balanceOf(account);
     // 用户的平均固定利率
     uint256 stableRate = _usersStableRate[account];
-    // 没债务就返回0（放上一句不是更好，万一以后改状态的函数用到了，还可以省点gas :)
+    // 没债务就返回0（放上一句更好，可以省点gas :)
     if (accountBalance == 0) {
       return 0;
     }
@@ -131,7 +131,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
       stableRate,
       _timestamps[account]
     );
-    // ScB * borrow index
+    // 余额 * 复利利率
     return accountBalance.rayMul(cumulatedInterest);
   }
 
@@ -161,6 +161,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
     // 还款人
     address onBehalfOf,
     uint256 amount,
+    // 当前固定借款利率
     uint256 rate
   ) external override onlyLendingPool returns (bool) {
     MintLocalVars memory vars;
@@ -209,6 +210,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
       .rayDiv(vars.nextSupply.wadToRay());
 
     // 更新用户余额
+    // 注意，这里每次新借款都会把利息加到用户余额上
     _mint(onBehalfOf, amount.add(balanceIncrease), vars.previousSupply);
 
     emit Transfer(address(0), onBehalfOf, amount);

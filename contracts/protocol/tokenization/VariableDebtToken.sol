@@ -79,6 +79,7 @@ contract VariableDebtToken is DebtTokenBase, IVariableDebtToken {
       return 0;
     }
 
+    // ScB * VI
     return scaledBalance.rayMul(_pool.getReserveNormalizedVariableDebt(_underlyingAsset));
   }
 
@@ -92,20 +93,29 @@ contract VariableDebtToken is DebtTokenBase, IVariableDebtToken {
    * @param index The variable debt index of the reserve
    * @return `true` if the the previous balance of the user is 0
    **/
+  // mint 动态借款token
   function mint(
+    // 受益人
     address user,
+    // 还款人
     address onBehalfOf,
     uint256 amount,
+    // 动态借款指数 VI
     uint256 index
   ) external override onlyLendingPool returns (bool) {
+    // 减去授权借款额度
     if (user != onBehalfOf) {
       _decreaseBorrowAllowance(onBehalfOf, user, amount);
     }
 
+    // 合约存储的用户当前借款余额
     uint256 previousBalance = super.balanceOf(onBehalfOf);
+    // amount / index 需要mint的缩小后的数量
     uint256 amountScaled = amount.rayDiv(index);
     require(amountScaled != 0, Errors.CT_INVALID_MINT_AMOUNT);
 
+    // mint
+    // 更新 _totalSupply和用户余额
     _mint(onBehalfOf, amountScaled);
 
     emit Transfer(address(0), onBehalfOf, amount);

@@ -134,7 +134,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
 
     address aToken = reserve.aTokenAddress;
 
-    // 更新资产的状态变量
+    // 更新资产的状态变量，流动性指数 LI、动态借款指数VI和时间戳
     reserve.updateState();
     // 更新资产的利率模型变量，固定借款利率、动态借款利率、流动性率
     reserve.updateInterestRates(asset, aToken, amount, 0);
@@ -274,14 +274,17 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
    * other borrower whose debt should be removed
    * @return The final amount repaid
    **/
+  // 还款
   function repay(
     address asset,
     uint256 amount,
+    // 1 for Stable, 2 for Variable
     uint256 rateMode,
     address onBehalfOf
   ) external override whenNotPaused returns (uint256) {
     DataTypes.ReserveData storage reserve = _reserves[asset];
 
+    // 获取用户实际借款数量
     (uint256 stableDebt, uint256 variableDebt) = Helpers.getUserCurrentDebt(onBehalfOf, reserve);
 
     DataTypes.InterestRateMode interestRateMode = DataTypes.InterestRateMode(rateMode);
@@ -701,6 +704,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
    * @param asset The address of the underlying asset of the reserve
    * @return The reserve normalized variable debt
    */
+  // 获取最新动态借款指数 VI
   function getReserveNormalizedVariableDebt(
     address asset
   ) external view override returns (uint256) {
@@ -934,7 +938,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
 
       // mint 固定利率借款token
       // 同时：
-      // 更新_totalSupply
+      // 更新_totalSupply和用户余额（新增数量=本次借款数量+上次操作以来的利息）
       // 更新用户借款利率
       // 更新全局操作时间戳和用户操作时间戳
       isFirstBorrowing = IStableDebtToken(reserve.stableDebtTokenAddress).mint(
@@ -945,6 +949,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
       );
     } else {
       // mint 动态利率借款token
+      // 更新_totalSupply和用户余额（新增数量=本次借款数量 / variableBorrowIndex）
       isFirstBorrowing = IVariableDebtToken(reserve.variableDebtTokenAddress).mint(
         vars.user,
         vars.onBehalfOf,
@@ -957,6 +962,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
       userConfig.setBorrowing(reserve.id, true);
     }
 
+    // 更新资产的利率模型变量，固定借款利率SR、动态借款利率VR、流动性率LR
     reserve.updateInterestRates(
       vars.asset,
       vars.aTokenAddress,
@@ -964,6 +970,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
       vars.releaseUnderlying ? vars.amount : 0
     );
 
+    // 转移借款给受益人
     if (vars.releaseUnderlying) {
       IAToken(vars.aTokenAddress).transferUnderlyingTo(vars.user, vars.amount);
     }
