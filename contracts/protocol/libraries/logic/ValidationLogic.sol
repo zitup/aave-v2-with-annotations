@@ -253,6 +253,7 @@ library ValidationLogic {
    * @param stableDebt The borrow balance of the user
    * @param variableDebt The borrow balance of the user
    */
+  // 校验repay
   function validateRepay(
     DataTypes.ReserveData storage reserve,
     uint256 amountSent,
@@ -263,10 +264,13 @@ library ValidationLogic {
   ) external view {
     bool isActive = reserve.configuration.getActive();
 
+    // 资产必须为活跃状态
     require(isActive, Errors.VL_NO_ACTIVE_RESERVE);
 
+    // 还款数量必须大于0
     require(amountSent > 0, Errors.VL_INVALID_AMOUNT);
 
+    // 对应借款模式的借款数量必须大于0
     require(
       (stableDebt > 0 &&
         DataTypes.InterestRateMode(rateMode) == DataTypes.InterestRateMode.STABLE) ||
@@ -275,6 +279,7 @@ library ValidationLogic {
       Errors.VL_NO_DEBT_OF_SELECTED_TYPE
     );
 
+    // 替别人还款需要明确还款金额 或 给自己还款
     require(
       amountSent != uint256(-1) || msg.sender == onBehalfOf,
       Errors.VL_NO_EXPLICIT_AMOUNT_TO_REPAY_ON_BEHALF

@@ -202,7 +202,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
     // Calculates the updated average stable rate
     // 计算全局平均借款利率
     // = 总利息 / 总借款数量
-    // = (currentAvgStableRate * previousSupply + amount * rate) /
+    // = (currentAvgStableRate * previousSupply + amount * rate) / nextSupply
     vars.currentAvgStableRate = _avgStableRate = vars
       .currentAvgStableRate
       .rayMul(vars.previousSupply.wadToRay())
@@ -234,9 +234,12 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
    * @param user The address of the user getting his debt burned
    * @param amount The amount of debt tokens getting burned
    **/
+  // 销毁借款token
   function burn(address user, uint256 amount) external override onlyLendingPool {
+    // 计算用户当前余额和上次操作以来增加的利息
     (, uint256 currentBalance, uint256 balanceIncrease) = _calculateBalanceIncrease(user);
 
+    // 当前总供应
     uint256 previousSupply = totalSupply();
     uint256 newAvgStableRate = 0;
     uint256 nextSupply = 0;
@@ -246,10 +249,15 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
     // there might be accumulation errors so that the last borrower repaying
     // mght actually try to repay more than the available debt supply.
     // In this case we simply set the total supply and the avg stable rate to 0
+    // 总供应和用户的借款数量累计是分开的，每次操作都会累记总供应，但是用户借款只能在用户操作的时候更新。
+    // 由于累计错误，最后偿还的借款人实际上可能会试图偿还超过可用债务供应量的数量
+    // （累计错误说的不太清楚，正常应该不会出现这种情况，因为总供应累计的是全体借款人的数量，累计的利息总是比一个用户多，即使剩下一个用户
+    // 总供应应该也是比这个用户的借款要多或相等。除非用户做慈善，输入了大于总供应的数量）
     if (previousSupply <= amount) {
       _avgStableRate = 0;
       _totalSupply = 0;
     } else {
+      // 更新总供应，减去还款数量
       nextSupply = _totalSupply = previousSupply.sub(amount);
       uint256 firstTerm = _avgStableRate.rayMul(previousSupply.wadToRay());
       uint256 secondTerm = userStableRate.rayMul(amount.wadToRay());
@@ -257,9 +265,11 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
       // For the same reason described above, when the last user is repaying it might
       // happen that user rate * user balance > avg rate * total supply. In that case,
       // we simply set the avg rate to 0
+      // 同上，用户利息大于总利息时，直接设置为0
       if (secondTerm >= firstTerm) {
         newAvgStableRate = _avgStableRate = _totalSupply = 0;
       } else {
+        // newAvgStableRate = (总利息 - 用户的利息) / nextSupply
         newAvgStableRate = _avgStableRate = firstTerm.sub(secondTerm).rayDiv(nextSupply.wadToRay());
       }
     }
@@ -301,7 +311,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
    * @param user The address of the user for which the interest is being accumulated
    * @return The previous principal balance, the new principal balance and the balance increase
    **/
-  // 计算自上次用户互动以来余额的增加
+  // 计算自上次用户互动以来余额和增加的利息
   function _calculateBalanceIncrease(
     address user
   ) internal view returns (uint256, uint256, uint256) {
@@ -312,10 +322,10 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
     }
 
     // Calculation of the accrued interest since the last accumulation
-    // 计算自上次累积以来的应计利息
+    // 计算自上次累计以来的应计利息
     uint256 balanceIncrease = balanceOf(user).sub(previousPrincipalBalance);
 
-    // 返回上次余额、最新余额和增加的余额
+    // 返回上次余额、最新余额和增加的利息
     return (
       previousPrincipalBalance,
       previousPrincipalBalance.add(balanceIncrease),

@@ -289,6 +289,11 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
 
     DataTypes.InterestRateMode interestRateMode = DataTypes.InterestRateMode(rateMode);
 
+    // 校验还款条件：
+    // 资产必须为活跃状态
+    // 还款数量必须大于0
+    // 对应借款模式的借款数量必须大于0
+    // 替别人还款需要明确还款金额 或 给自己还款
     ValidationLogic.validateRepay(
       reserve,
       amount,
@@ -298,6 +303,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
       variableDebt
     );
 
+    // 设置还款数量
     uint256 paybackAmount = interestRateMode == DataTypes.InterestRateMode.STABLE
       ? stableDebt
       : variableDebt;
@@ -306,8 +312,10 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
       paybackAmount = amount;
     }
 
+    // 更新资产数据，包括流动性指数、动态借款指数和时间戳
     reserve.updateState();
 
+    // burn 借款token
     if (interestRateMode == DataTypes.InterestRateMode.STABLE) {
       IStableDebtToken(reserve.stableDebtTokenAddress).burn(onBehalfOf, paybackAmount);
     } else {
@@ -318,15 +326,19 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
       );
     }
 
+    // 更新资产的利率模型变量，固定借款利率SR、动态借款利率VR、流动性率LR
     address aToken = reserve.aTokenAddress;
     reserve.updateInterestRates(asset, aToken, paybackAmount, 0);
 
+    // 如果还清借款，设置borrowing为false
     if (stableDebt.add(variableDebt).sub(paybackAmount) == 0) {
       _usersConfig[onBehalfOf].setBorrowing(reserve.id, false);
     }
 
+    // 把还款资产数量打给aToken合约
     IERC20(asset).safeTransferFrom(msg.sender, aToken, paybackAmount);
 
+    // 类似还款后的钩子操作，目前为空函数
     IAToken(aToken).handleRepayment(msg.sender, paybackAmount);
 
     emit Repay(asset, onBehalfOf, msg.sender, paybackAmount);
