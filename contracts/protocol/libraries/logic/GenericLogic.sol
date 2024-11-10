@@ -52,6 +52,8 @@ library GenericLogic {
    * @param oracle The address of the oracle contract
    * @return true if the decrease of the balance is allowed
    **/
+  // 检查是否允许用户减少资产余额
+  // 比如，健康系数不能小于1
   function balanceDecreaseAllowed(
     address asset,
     address user,
@@ -62,6 +64,7 @@ library GenericLogic {
     uint256 reservesCount,
     address oracle
   ) external view returns (bool) {
+    // 用户没有借任何资产或没有使用这个资产作为抵押，返回true
     if (!userConfig.isBorrowingAny() || !userConfig.isUsingAsCollateral(reservesData[asset].id)) {
       return true;
     }
@@ -72,22 +75,29 @@ library GenericLogic {
       .configuration
       .getParams();
 
+    // 如果资产清算阈值等于0，返回true
     if (vars.liquidationThreshold == 0) {
       return true;
     }
 
+    // 获取用户整体数据
     (
+      // 总质押数量
       vars.totalCollateralInETH,
+      // 总借款数量
       vars.totalDebtInETH,
       ,
+      // 平均清算阈值
       vars.avgLiquidationThreshold,
 
     ) = calculateUserAccountData(user, reservesData, userConfig, reserves, reservesCount, oracle);
 
+    // 如果借款数量等于0，返回true
     if (vars.totalDebtInETH == 0) {
       return true;
     }
 
+    // 提取数量转为以ETH计算的数量
     vars.amountToDecreaseInETH = IPriceOracleGetter(oracle).getAssetPrice(asset).mul(amount).div(
       10 ** vars.decimals
     );
@@ -95,22 +105,28 @@ library GenericLogic {
     vars.collateralBalanceAfterDecrease = vars.totalCollateralInETH.sub(vars.amountToDecreaseInETH);
 
     //if there is a borrow, there can't be 0 collateral
+    // 执行到这里说明有借款，那么抵押资产的数量不能为0
     if (vars.collateralBalanceAfterDecrease == 0) {
       return false;
     }
 
+    // 计算提取后的平均清算阈值
+    // (总质押数量 * 平均清算阈值 - 提取数量 * 资产清算阈值) / 提取后的资产数量
+    // 总质押数量 * 平均清算阈值 其实是 最大借款数量
     vars.liquidationThresholdAfterDecrease = vars
       .totalCollateralInETH
       .mul(vars.avgLiquidationThreshold)
       .sub(vars.amountToDecreaseInETH.mul(vars.liquidationThreshold))
       .div(vars.collateralBalanceAfterDecrease);
 
+    // 计算用户健康系数
     uint256 healthFactorAfterDecrease = calculateHealthFactorFromBalances(
       vars.collateralBalanceAfterDecrease,
       vars.totalDebtInETH,
       vars.liquidationThresholdAfterDecrease
     );
 
+    // 健康系数必须大于等于1
     return healthFactorAfterDecrease >= GenericLogic.HEALTH_FACTOR_LIQUIDATION_THRESHOLD;
   }
 
@@ -204,7 +220,7 @@ library GenericLogic {
         // liquidityBalanceETH.mul(vars.ltv) 为用户当前资产的借出数量
         // 这不应该叫avgLtv ，其实是总借款数量，下面会用这个值除以总质押数量，得到真正的平均LTV
         vars.avgLtv = vars.avgLtv.add(liquidityBalanceETH.mul(vars.ltv));
-        // 累计 总清算数量 in ETH
+        // 累计 总清算数量 in ETH，即每个资产可以借出的最大资产数量之和
         // 同上，不应该叫avgLiquidationThreshold
         vars.avgLiquidationThreshold = vars.avgLiquidationThreshold.add(
           liquidityBalanceETH.mul(vars.liquidationThreshold)
@@ -258,6 +274,7 @@ library GenericLogic {
    * @param liquidationThreshold The avg liquidation threshold
    * @return The health factor calculated from the balances provided
    **/
+  // 计算健康系数
   function calculateHealthFactorFromBalances(
     uint256 totalCollateralInETH,
     uint256 totalDebtInETH,
@@ -265,6 +282,7 @@ library GenericLogic {
   ) internal pure returns (uint256) {
     if (totalDebtInETH == 0) return uint256(-1);
 
+    // 总质押 * 清算阈值 / 总借款
     return (totalCollateralInETH.percentMul(liquidationThreshold)).wadDiv(totalDebtInETH);
   }
 

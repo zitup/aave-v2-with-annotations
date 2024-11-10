@@ -117,16 +117,20 @@ contract AToken is
    * @param amount The amount being burned
    * @param index The new liquidity index of the reserve
    **/
+  // 销毁aToken，并转移资产
   function burn(
     address user,
     address receiverOfUnderlying,
     uint256 amount,
     uint256 index
   ) external override onlyLendingPool {
+    // 缩小数量
     uint256 amountScaled = amount.rayDiv(index);
     require(amountScaled != 0, Errors.CT_INVALID_BURN_AMOUNT);
+    // 销毁
     _burn(user, amountScaled);
 
+    // 转移资产
     IERC20(_underlyingAsset).safeTransfer(receiverOfUnderlying, amount);
 
     emit Transfer(user, address(0), amount);

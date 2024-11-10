@@ -176,23 +176,32 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
    *   different wallet
    * @return The final amount withdrawn
    **/
+  // 提取资金
   function withdraw(
     address asset,
     uint256 amount,
     address to
   ) external override whenNotPaused returns (uint256) {
+    // 资产属性
     DataTypes.ReserveData storage reserve = _reserves[asset];
 
     address aToken = reserve.aTokenAddress;
 
+    // 用户实际充值数量
     uint256 userBalance = IAToken(aToken).balanceOf(msg.sender);
 
     uint256 amountToWithdraw = amount;
 
+    // 如果传入uint256最大值，提取数量设置为用户余额
     if (amount == type(uint256).max) {
       amountToWithdraw = userBalance;
     }
 
+    // 校验提取
+    // 提取数量不等于0
+    // 提取数量小于等于余额
+    // 提取资产处于活跃状态
+    // 检查是否允许用户减少资产余额
     ValidationLogic.validateWithdraw(
       asset,
       amountToWithdraw,
@@ -204,15 +213,20 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
       _addressesProvider.getPriceOracle()
     );
 
+    // 更新资产数据，包括流动性指数LI、动态借款指数VI和时间戳
     reserve.updateState();
 
+    // 更新资产的利率模型变量，固定借款利率SR、动态借款利率VR、流动性率LR
     reserve.updateInterestRates(asset, aToken, 0, amountToWithdraw);
 
+    // 如果全部提取
     if (amountToWithdraw == userBalance) {
+      // 设置UsingAsCollateral为false
       _usersConfig[msg.sender].setUsingAsCollateral(reserve.id, false);
       emit ReserveUsedAsCollateralDisabled(asset, msg.sender);
     }
 
+    // 销毁aToken，并转移资产
     IAToken(aToken).burn(msg.sender, to, amountToWithdraw, reserve.liquidityIndex);
 
     emit Withdraw(asset, msg.sender, to, amountToWithdraw);
@@ -312,7 +326,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
       paybackAmount = amount;
     }
 
-    // 更新资产数据，包括流动性指数、动态借款指数和时间戳
+    // 更新资产数据，包括流动性指数LI、动态借款指数VI和时间戳
     reserve.updateState();
 
     // burn 借款token
@@ -938,7 +952,7 @@ contract LendingPool is VersionedInitializable, ILendingPool, LendingPoolStorage
       oracle
     );
 
-    // 更新资产数据，包括流动性指数、动态借款指数和时间戳
+    // 更新资产数据，包括流动性指数LI、动态借款指数VI和时间戳
     reserve.updateState();
 
     uint256 currentStableRate = 0;

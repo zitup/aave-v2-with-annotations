@@ -57,6 +57,7 @@ library ValidationLogic {
    * @param reservesCount The number of reserves
    * @param oracle The price oracle
    */
+  // 校验提取
   function validateWithdraw(
     address reserveAddress,
     uint256 amount,
@@ -67,12 +68,16 @@ library ValidationLogic {
     uint256 reservesCount,
     address oracle
   ) external view {
+    // 提取数量不等于0
     require(amount != 0, Errors.VL_INVALID_AMOUNT);
+    // 提取数量小于等于余额
     require(amount <= userBalance, Errors.VL_NOT_ENOUGH_AVAILABLE_USER_BALANCE);
 
+    // 提取资产处于活跃状态
     (bool isActive, , , ) = reservesData[reserveAddress].configuration.getFlags();
     require(isActive, Errors.VL_NO_ACTIVE_RESERVE);
 
+    // 检查是否允许用户减少资产余额
     require(
       GenericLogic.balanceDecreaseAllowed(
         reserveAddress,

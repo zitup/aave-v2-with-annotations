@@ -131,10 +131,13 @@ contract VariableDebtToken is DebtTokenBase, IVariableDebtToken {
    * @param amount The amount getting burned
    * @param index The variable debt index of the reserve
    **/
+  // 销毁动态借款token
   function burn(address user, uint256 amount, uint256 index) external override onlyLendingPool {
+    // 缩小数量
     uint256 amountScaled = amount.rayDiv(index);
     require(amountScaled != 0, Errors.CT_INVALID_BURN_AMOUNT);
 
+    // 销毁
     _burn(user, amountScaled);
 
     emit Transfer(user, address(0), amount);

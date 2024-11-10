@@ -236,7 +236,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
    **/
   // 销毁借款token
   function burn(address user, uint256 amount) external override onlyLendingPool {
-    // 计算用户当前余额和上次操作以来增加的利息
+    // 计算用户当前余额（包含增加的利息）和上次操作以来增加的利息
     (, uint256 currentBalance, uint256 balanceIncrease) = _calculateBalanceIncrease(user);
 
     // 当前总供应
@@ -259,7 +259,9 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
     } else {
       // 更新总供应，减去还款数量
       nextSupply = _totalSupply = previousSupply.sub(amount);
+      // 总利息
       uint256 firstTerm = _avgStableRate.rayMul(previousSupply.wadToRay());
+      // 用户利息
       uint256 secondTerm = userStableRate.rayMul(amount.wadToRay());
 
       // For the same reason described above, when the last user is repaying it might
@@ -269,21 +271,25 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
       if (secondTerm >= firstTerm) {
         newAvgStableRate = _avgStableRate = _totalSupply = 0;
       } else {
-        // newAvgStableRate = (总利息 - 用户的利息) / nextSupply
+        // 新的平均利率 = (总利息 - 用户的利息) / nextSupply
         newAvgStableRate = _avgStableRate = firstTerm.sub(secondTerm).rayDiv(nextSupply.wadToRay());
       }
     }
 
+    // 如果还款数量等于当前所有欠款，清空用户数据
     if (amount == currentBalance) {
       _usersStableRate[user] = 0;
       _timestamps[user] = 0;
     } else {
+      // 更新用户最新操作时间
       //solium-disable-next-line
       _timestamps[user] = uint40(block.timestamp);
     }
+    // 更新全局最新操作时间
     //solium-disable-next-line
     _totalSupplyTimestamp = uint40(block.timestamp);
 
+    // 如果新增利息大于用户还款数量，需要mint更多token
     if (balanceIncrease > amount) {
       uint256 amountToMint = balanceIncrease.sub(amount);
       _mint(user, amountToMint, previousSupply);
@@ -298,6 +304,7 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
         nextSupply
       );
     } else {
+      // 否则，burn相应数量的token
       uint256 amountToBurn = amount.sub(balanceIncrease);
       _burn(user, amountToBurn, previousSupply);
       emit Burn(user, amountToBurn, currentBalance, balanceIncrease, newAvgStableRate, nextSupply);
@@ -465,8 +472,10 @@ contract StableDebtToken is IStableDebtToken, DebtTokenBase {
    * @param amount The amount being burned
    * @param oldTotalSupply The total supply before the burning event
    **/
+  // 销毁欠款token
   function _burn(address account, uint256 amount, uint256 oldTotalSupply) internal {
     uint256 oldAccountBalance = _balances[account];
+    // 减少用户数量
     _balances[account] = oldAccountBalance.sub(amount, Errors.SDT_BURN_EXCEEDS_BALANCE);
 
     if (address(_incentivesController) != address(0)) {
